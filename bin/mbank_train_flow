@@ -170,7 +170,12 @@ else:
 		validation_data = validation_data, validation_weights = validation_ll,
 		optimizer = optimizer, batch_size = args.batch_size, validation_step = 100,
 		callback = early_stopper_callback, lr_scheduler = scheduler,
-		boundaries = boundaries, verbose = args.verbose)
+		boundaries = boundaries, constant_quantile = args.constant_quantile,
+		boundary_padding = args.boundary_padding, weight_exponent = args.weight_exponent,
+		verbose = args.verbose)
+	np.savez(args.run_dir+'history_{}.npz'.format(args.run_name), train_loss = history['train_loss'],
+		validation_loss = np.array([float(l) for l in history['validation_loss']]),
+		validation_step = history['validation_step'])
 
 	if os.path.isfile(args.flow_file+'.checkpoint'): os.remove(args.flow_file+'.checkpoint')
 	flow.save_weigths(args.flow_file)

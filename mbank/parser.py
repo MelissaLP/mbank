@@ -161,6 +161,15 @@ def add_flow_options(parser):
 	parser.add_argument(
 		"--load-flow", default = False, action = 'store_true',
 		help="Whether to load the flow from file (useful for plotting purposes)")
+	parser.add_argument(
+		"--constant-quantile", default = 0.9, type = float,
+		help="Quantile of the dataset log volumes that initializes the trainable constant of the flow")
+	parser.add_argument(
+		"--boundary-padding", default = 0.01, type = float,
+		help="Fraction of each coordinate range added on each side of the flow's boundaries")
+	parser.add_argument(
+		"--weight-exponent", default = 0.5, type = float,
+		help="Exponent of the weights of the `weighted_ll_mse` loss")
 
 def add_general_options(parser):
 	"""
@@ -290,6 +299,12 @@ def add_template_placement_options(parser):
 	parser.add_argument(
 		"--empty-iterations", default = 100, type = float,
 		help="Number of consecutive rejected proposal after which the `stochastic` placing method stops.")
+	parser.add_argument(
+		"--importance-sampling", default = False, action = 'store_true',
+		help="Whether the `random` placing method with a flow estimates the covering fraction with importance sampling")
+	parser.add_argument(
+		"--w-max", default = 10., type = float,
+		help="Maximum importance sampling weight (with --importance-sampling): larger weights are clipped to it")
 
 def add_injections_options(parser):
 	"""

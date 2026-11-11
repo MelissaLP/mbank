@@ -227,7 +227,7 @@ def place_geometric_flow(minimum_match, flow, metric_obj, n_livepoints, boundari
 
 
 #@do_profile(follow=[])
-def place_random_flow(minimum_match, flow, metric_obj, n_livepoints, boundaries_checker = None, covering_fraction = 0.9, dry_run = False, importance_sampling = False, metric_type = 'symphony', verbose = True):
+def place_random_flow(minimum_match, flow, metric_obj, n_livepoints, boundaries_checker = None, covering_fraction = 0.9, dry_run = False, importance_sampling = False, metric_type = 'symphony', w_max = 10., verbose = True):
 	"""
 	Draw templates from the flow. For each proposal, all the livepoints in the ellipse of constant ``minimum_match`` are killed. The iteration goes on until a fraction of ``covering_fraction`` of the space is covered.
 	It follows `2202.09380 <https://arxiv.org/abs/2202.09380>`_
@@ -266,6 +266,9 @@ def place_random_flow(minimum_match, flow, metric_obj, n_livepoints, boundaries_
 		
 		importance_sampling: bool
 			Whether to compute the covering fraction using importance sampling. Importance sampling gives a more accurate estimation of the covering fraction but at the cost of a higher variance in the number of templates.
+
+		w_max: float
+			Maximum value of the (not normalized) importance sampling weights: larger weights are clipped to it
 
 		metric_type: str
 			The method to compute the metric. Default 'symphony'
@@ -312,10 +315,10 @@ def place_random_flow(minimum_match, flow, metric_obj, n_livepoints, boundaries_
 			
 		if importance_sampling:
 			p_ = l_pdf_true-l_pdf-flow.constant.item()
-			if p_>np.log(10):
+			if p_>np.log(w_max):
 				warnings.warn("One (or more) importance sampling weight exceeded a safe threshold and were reularized. Please, check whether the normalizing flow is accurate enough")
 				#if verbose: print('\tRegularized livepoint: theta | weight ', l, p_)
-			p_ = min(p_, np.log(10)) #FIXME: regularization: how to tune this number?
+			p_ = min(p_, np.log(w_max)) #FIXME: regularization: how to tune this number?
 			p.append(np.exp(p_))
 
 	if ids_to_remove:

@@ -270,7 +270,7 @@ class GW_Flow(Flow):
 		return torch.square(self.log_prob(inputs=data) - weights + self.constant).mean()
 
 	def weighted_ll_mse_loss(self, data, weights):
-		w = torch.sqrt(weights - torch.min(weights))
+		w = torch.pow(weights - torch.min(weights), getattr(self, 'weight_exponent', 0.5))
 		#w /= torch.sum(w)
 		return torch.square((self.log_prob(inputs=data) - weights + self.constant)*w).mean()
 
@@ -290,7 +290,7 @@ class GW_Flow(Flow):
 		
 		return M_flow
 
-	def train_flow(self, loss, N_epochs, train_data, validation_data, optimizer, train_weights = None, validation_weights = None, batch_size = None, validation_step = 10, callback = None, lr_scheduler = None, boundaries = None, verbose = False):
+	def train_flow(self, loss, N_epochs, train_data, validation_data, optimizer, train_weights = None, validation_weights = None, batch_size = None, validation_step = 10, callback = None, lr_scheduler = None, boundaries = None, constant_quantile = 0.9, boundary_padding = 0.01, weight_exponent = 0.5, verbose = False):
 		"""
 		Trains the normalizing flow.
 		
@@ -353,6 +353,15 @@ class GW_Flow(Flow):
 				Rectangular boundaries for the dataset: the flow will only be able to sample points within this rectangle.
 				If not given, its value will be inferred from the data.
 
+			constant_quantile: float
+				Quantile of ``train_weights`` that initializes the trainable constant (if the flow has one)
+
+			boundary_padding: float
+				Fraction of the range of each coordinate added on each side of the boundaries of the first (tanh) layer
+
+			weight_exponent: float
+				Exponent of the weights of the ``weighted_ll_mse`` loss, ``(weights - min(weights))**weight_exponent``
+
 			verbose: bool
 				Whether to print a progress bar during the training
 
@@ -379,6 +388,7 @@ class GW_Flow(Flow):
 		if validation_weights is not None: validation_weights = torch.squeeze(torch.tensor(validation_weights, dtype=torch.float32))
 		
 		N_train = train_data.shape[0]
+		self.weight_exponent = weight_exponent
 		if not isinstance(batch_size, int):
 			batch_size = N_train//10
 		
@@ -395,7 +405,7 @@ class GW_Flow(Flow):
 				low, high = torch.Tensor(boundaries[0]), torch.Tensor(boundaries[1])
 				#the interval between low and high is made larger by a factor epsilon
 
-			epsilon_ = 0.01 #TODO: tune this number!! That's very very hard to set. Maybe you can make it trainable?
+			epsilon_ = boundary_padding #TODO: tune this number!! That's very very hard to set. Maybe you can make it trainable?
 			diff = high-low
 			assert torch.all(torch.abs(diff)>1e-20), "The training set has at least one degenerate dimension! Unable to continue with the training"
 			low = low - diff*epsilon_
@@ -422,7 +432,7 @@ class GW_Flow(Flow):
 			#validation_weights = validation_weights - torch.max(train_weights) + 0
 			#train_weights = train_weights - torch.max(train_weights) + 0
 			with torch.no_grad():
-				self.constant[0] = torch.quantile(train_weights, 0.9).item()
+				self.constant[0] = torch.quantile(train_weights, constant_quantile).item()
 			#self.constant.requires_grad = False
 			if verbose: print('Initialing scaling constant to: ', self.constant[0].item())
 		
