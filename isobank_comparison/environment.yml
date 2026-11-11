@@ -1,0 +1,19 @@
+name: mbank
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - numpy
+  - scipy>=1.9.3
+  - matplotlib
+  - tqdm
+  - emcee
+  - lalsuite>=7
+  - python-ligo-lw
+  - pytorch
+  - pip
+  - pip:
+      - glasflow
+      - ray
+variables:
+  OMP_NUM_THREADS: "1"  # lalsimulation 7.0.0 TaylorF2Ecc is not reproducible with more threads
