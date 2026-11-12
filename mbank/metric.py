@@ -27,6 +27,8 @@ import warnings
 from .handlers import variable_handler
 from .utils import project_metric, get_projected_metric
 
+import torch
+
 	#TODO: understand whether it's a good idea to use anycache
 #from anycache import anycache
 
@@ -539,9 +541,11 @@ class cbc_metric(object):
 			lal frequency series holding the polarizations
 		"""
 		if approx is None: approx = self.approx
+		
+		
 		theta = np.squeeze(theta)
 		if theta.ndim == 2: raise RuntimeError("Theta can be only one dimensional")
-
+        
 		if df is None: df = self.delta_f
 		else: assert isinstance(df, float), "Wrong type {} for df: expected float".format(type(df))
 
@@ -701,6 +705,7 @@ class cbc_metric(object):
 		
 			###
 			#Being sustainable and doing things in batch
+		#theta = theta.detach().cpu().numpy()
 		theta = np.asarray(theta)
 		squeeze = (theta.ndim == 1)
 		theta = np.atleast_2d(theta)
@@ -1821,6 +1826,45 @@ class cbc_metric(object):
 		return points
 	
 	
-	
-	
+	def metric_tensor(self, theta):
+		"""
+		Metric tensor at points x = (τ₀, τ₁.₅).
 		
+		Args:
+            x: [N, 2] tensor in tau coordinates
+
+        Returns:
+            g: [N, 2, 2] metric tensors
+        """
+		return self.get_metric(theta)
+	
+	def metric_tensor_torch(self, theta):
+		g_np = self.metric_tensor(theta)[0]
+		return torch.from_numpy(g_np).double()
+
+    #def proper_distance(self, theta1, theta2):
+     #   dx = theta2 - theta1  # shape (N, dim)
+     #   x_mid = 0.5 * (theta1 + theta2)
+
+        # Metric tensor (NumPy → Torch)
+     #   g = self.metric_tensor(x_mid)  # shape (N, dim, dim), numpy
+
+     #   if isinstance(g, np.ndarray):
+     #       g = torch.from_numpy(g).float()  # convert to PyTorch
+
+     #   g = g.float()
+     #   g_dx = torch.einsum('nij,nj->ni', g, dx)
+     #   ds2 = torch.sum(dx * g_dx, dim=-1)
+     #   return torch.sqrt(torch.clamp(ds2, min=0.0))	
+	def proper_distance(self, theta1, theta2):
+		dx = theta2 - theta1
+		x_mid = 0.5 * (theta1+theta2)
+
+		g = self.metric_tensor(x_mid)
+		if isinstance(g, np.ndarray):
+			g = torch.from_numpy(g).float()
+		g = g.float()
+		dx = dx.to(g.dtype)
+		g_dx = torch.einsum('nij,nj->ni', g, dx)
+		ds2 = torch.sum(dx * g_dx, dim=-1)
+		return torch.sqrt(torch.clamp(ds2, min=0.0))

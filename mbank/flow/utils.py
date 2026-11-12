@@ -28,8 +28,13 @@ class validation_metric():
 		
 		dist_list = []
 		for n in range(N_estimation):
-			true_noise = flow._distribution.sample(self.N_samples).detach().numpy()
-			dist_list.append(self.get_dist(true_noise))
+			device = next(flow.parameters()).device 
+			true_noise = flow._distribution.sample(self.N_samples).to(device)
+
+			#true_noise = flow._distribution.sample(self.N_samples).detach().numpy()
+			#dist_list.append(self.get_dist(true_noise))
+			dist_list.append(self.get_dist(true_noise).item())
+
 		dist_list = np.array(dist_list)
 		
 		self.metric_mean = np.mean(dist_list)
@@ -38,14 +43,21 @@ class validation_metric():
 		
 		return
 
+	#def get_dist(self, data):
+	#	"Measures the distance between data and the noise distribution (a standard normal)"
+	#	raise NotImplementedError("The distance between two dataset must be implemented by sub-classes!")
+	
 	def get_dist(self, data):
-		"Measures the distance between data and the noise distribution (a standard normal)"
-		raise NotImplementedError("The distance between two dataset must be implemented by sub-classes!")
+		device = next(self.flow.parameters()).device
+		if isinstance(data, np.ndarray):
+			data = torch.tensor(data, dtype=torch.float32)
+		return self.flow._distribution.log_prob(data.to(device)).mean()
+
 
 	def get_validation_metric(self):
 		"Check if the data transformed into noise are consistent with the random normal distribution"
-		
-		noise_data = self.flow.transform_to_noise(self.data).detach().numpy()
+		device = next(self.flow.parameters()).device
+		noise_data = self.flow.transform_to_noise(self.data).to(device)
 		dist = self.get_dist(noise_data)
 		
 		return dist	

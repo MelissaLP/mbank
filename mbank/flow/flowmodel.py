@@ -1,3 +1,4 @@
+
 """
 mbank.flow.flowmodel
 ====================
@@ -149,13 +150,24 @@ class TanhTransform(Transform):
 		return outputs, logabsdet
 
 	def forward(self, inputs, context=None):
+		
+		self.low.data = self.low.data.to(inputs.device)
+		self.high.data = self.high.data.to(inputs.device)
+		
 		inside = torch.logical_and(torch.prod(inputs>self.low, dim = -1), torch.prod(inputs<self.high, dim = -1))
 		inputs = inputs.mul(2)
 		inputs = inputs.add(-self.high-self.low)
 		inputs = inputs.div(self.high-self.low)
 
 		if torch.min(inputs) <= -1 or torch.max(inputs) >= 1:
-			raise InputOutsideDomain()
+			#raise InputOutsideDomain()
+			print("Warning: Clamping input to TanhTransform")
+		#epsilon = 1e-5
+		#inputs = torch.clamp(inputs, -1 + epsilon, 1 - epsilon)
+
+		#inputs = torch.clamp(inputs, -0.999, 0.999)
+
+
 		outputs = 0.5 * torch.log((1 + inputs) / (1 - inputs))
 		logabsdet = -torch.log((1 - inputs ** 2)*0.5*(self.high-self.low))
 		logabsdet = torchutils.sum_except_batch(logabsdet, num_batch_dims=1)
@@ -266,13 +278,31 @@ class GW_Flow(Flow):
 	def forward_KL_loss(self, data, weights):
 		return -self.log_prob(inputs=data).mean()
 
+
+	# def ll_mse_loss(self, data, weights):
+	# 	return torch.square(self.log_prob(inputs=data) - weights + self.constant).mean()
+
+	# def weighted_ll_mse_loss(self, data, weights):
+	# 	w = torch.sqrt(weights - torch.min(weights))
+	# 	#w /= torch.sum(w)
+	# 	return torch.square((self.log_prob(inputs=data) - weights + self.constant)*w).mean()
 	def ll_mse_loss(self, data, weights):
-		return torch.square(self.log_prob(inputs=data) - weights + self.constant).mean()
+		
+		device = data.device  # Get the device of `data` (either CPU or CUDA)
+		weights = weights.to(device)  # Move weights to the same device as data
+		constant = self.constant.to(device) if isinstance(self.constant, torch.Tensor) else self.constant
+		return torch.square(self.log_prob(inputs=data) - weights + constant).mean()
+
 
 	def weighted_ll_mse_loss(self, data, weights):
-		w = torch.pow(weights - torch.min(weights), getattr(self, 'weight_exponent', 0.5))
-		#w /= torch.sum(w)
-		return torch.square((self.log_prob(inputs=data) - weights + self.constant)*w).mean()
+		device = data.device
+		weights = weights.to(device)
+		constant = self.constant.to(device) if isinstance(self.constant, torch.Tensor) else self.constant
+
+		exponent = getattr(self, 'weight_exponent', 0.5)
+		w = weights - torch.min(weights)
+		w = torch.sqrt(w) if exponent == 0.5 else torch.pow(w, exponent)  # Compute weights
+		return torch.square((self.log_prob(inputs=data) - weights + constant) * w).mean()
 
 	def get_jacobian(self, theta):
 		theta = torch.tensor(theta, dtype = torch.float32)
@@ -380,7 +410,8 @@ class GW_Flow(Flow):
 				- `validation_metric`: name of the validation metric being used
 		"""
 		#TODO: implement early stopping!!
-		
+		device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 			#Are you sure you want float32?
 		train_data = torch.tensor(train_data, dtype=torch.float32)
 		validation_data = torch.tensor(validation_data, dtype=torch.float32)
@@ -455,6 +486,7 @@ class GW_Flow(Flow):
 				#	print('\tnan in dataset: ',np.any(np.isnan(train_weights[ids_].numpy())))
 				#	print('\tnan in loss: ',np.any(np.isnan(loss_.numpy())))
 				loss_.backward()
+				torch.nn.utils.clip_grad_norm_(self.parameters(), max_norm=5.0) 
 				optimizer.step()
 
 				train_loss.append(loss_.item())
@@ -469,6 +501,7 @@ class GW_Flow(Flow):
 					
 					if callable(callback):
 						if callback(self, i, train_loss[-1], val_loss[-1]): break
+					
 	
 				if not (i%int(N_epochs//1000+1)) and verbose:
 					lr_ = optimizer.state_dict()['param_groups'][0]['lr']
@@ -476,11 +509,25 @@ class GW_Flow(Flow):
 		except KeyboardInterrupt:
 			if verbose: print("KeyboardInterrupt: quitting the training loop")
 
-		history = {'validation_step': validation_step,
-			'train_loss': np.array(train_loss),
-			'validation_loss': np.array(val_loss),
-			'valmetric_value': np.array(metric),
-		}
+		# history = {'validation_step': validation_step,
+		# 	'train_loss': np.array(train_loss),
+		# 	'validation_loss': np.array(val_loss),
+		# 	'valmetric_value': np.array(metric),
+		# }
+
+		# history = {
+        #     'validation_step': validation_step,
+        #     'train_loss': np.array(torch.tensor(train_loss).to('cuda').cpu().numpy()),  
+        #     'validation_loss': np.array(torch.tensor(val_loss).to('cuda').cpu().numpy()),  
+        #     'valmetric_value': np.array(torch.tensor(metric).to('cuda').cpu().numpy()),  
+        # }
+		history = {
+            'validation_step': validation_step,
+            'train_loss': np.array(torch.tensor(train_loss).to(device).cpu().numpy()),  
+            'validation_loss': np.array(torch.tensor(val_loss).to(device).cpu().numpy()),  
+            'valmetric_value': np.array(torch.tensor(metric).to(device).cpu().numpy()),  
+        }
+
 
 		return history
 
@@ -490,7 +537,8 @@ class GW_Flow(Flow):
 		#raise NotImplementedError("Implement a nice and viable loss function :D")
 		if isinstance(callback, tuple): callback, callback_step = callback
 		else: callback_step = 10
-		
+		device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
 			#Setting the data nicely
 		train_samples, train_metric_data = train_data
 		train_samples = torch.tensor(train_samples, dtype=torch.float32)
@@ -498,7 +546,11 @@ class GW_Flow(Flow):
 		validation_samples, validation_metric_data = validation_data
 		validation_samples = torch.tensor(validation_samples, dtype=torch.float32)
 		validation_metric_data = torch.tensor(validation_metric_data, dtype=torch.float32)
-		
+		train_samples = train_samples.to(device)
+		train_metric_data = train_metric_data.to(device)
+		validation_samples = validation_samples.to(device)
+		validation_metric_data = validation_metric_data.to(device)
+
 		N_train, D = train_samples.shape
 		
 				#Dealing with the first transformation
@@ -602,7 +654,10 @@ class GW_Flow(Flow):
 					
 					metric.append(metric_computer.get_validation_metric())
 					
-				if callable(callback) and not (i%callback_step): callback(self, i)
+				#if callable(callback) and not (i%callback_step): callback(self, i)
+				if callable(callback) and not (i % callback_step): 
+				   callback(self, i, train_loss[i], val_loss[-1]) 
+
 				if not (i%int(N_epochs//1000+1)) and verbose: it.set_description(desc_str.format(train_loss[i], val_loss[-1]))
 		except KeyboardInterrupt:
 			print("KeyboardInterrupt: quitting the training loop")
@@ -747,7 +802,9 @@ class STD_GW_Flow(GW_Flow):
 		with torch.no_grad():
 			log_volume_element = self.log_prob(theta) + self.constant
 		
-		return log_volume_element.numpy()
+		#return log_volume_element.numpy()
+		return log_volume_element.cpu().numpy()
+
 	
 	@property
 	def boundary_box(self):
